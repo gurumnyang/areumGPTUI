@@ -1,0 +1,31 @@
+name = "areumgptui"
+main = "src/worker.js"
+compatibility_date = "2025-03-16"
+
+compatibility_flags = [
+    "nodejs_compat"
+]
+
+account_id = "ANONYMIZED_ACCOUNT_ID"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+# 실제 운영 시에는 wrangler secret, 환경 변수 등으로 안전하게 관리하세요.
+GOOGLE_CLIENT_ID = "ANONYMIZED_GOOGLE_CLIENT_ID"
+GOOGLE_CLIENT_SECRET = "ANONYMIZED_GOOGLE_CLIENT_SECRET"
+OPENAI_API_KEY = "ANONYMIZED_OPENAI_API_KEY"
+
+# 예: 다른 쿠키 암호화 키 등도 필요하면 넣으세요
+SESSION_SECRET = "ANONYMIZED_SESSION_SECRET"
+
+[[kv_namespaces]]
+binding = "SESSION_KV"
+id = "ANONYMIZED_KV_ID"
+
+[[kv_namespaces]]
+binding = "CHAT_KV"
+id = "ANONYMIZED_KV_ID"
