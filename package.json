@@ -1,0 +1,28 @@
+{
+  "name": "areumgptui",
+  "version": "1.0.0",
+  "description": "이 프로젝트는 Cloudflare Workers를 이용하여 다음 기능을 제공합니다:",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gurumnyang/areumGPTUI.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/gurumnyang/areumGPTUI/issues"
+  },
+  "homepage": "https://github.com/gurumnyang/areumGPTUI#readme",
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "googleapis": "^146.0.0",
+    "openai": "^4.87.3",
+    "uuid": "^11.1.0"
+  }
+}

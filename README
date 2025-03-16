@@ -1,0 +1,33 @@
+# Cloudflare Worker - GPT + Google OAuth Demo
+
+이 프로젝트는 Cloudflare Workers를 이용하여 다음 기능을 제공합니다:
+
+1. **Google OAuth 로그인** (특정 이메일만 허용 가능)
+2. **OpenAI GPT API 연동** (사용자 메시지를 GPT에 전달 후 응답 반환)
+3. **사용자별 대화 기록 저장** (Cloudflare KV 사용)
+4. **간단한 웹 프론트엔드** (index.html, app.js)
+
+## 준비 사항
+
+- [Cloudflare Workers 계정](https://workers.cloudflare.com/)
+- [wrangler CLI](https://developers.cloudflare.com/workers/wrangler/get-started/) 설치
+- Google Cloud Platform에서 OAuth 클라이언트 ID/Secret 발급
+- OpenAI API Key
+
+## 설정 방법
+
+1. `wrangler.toml` 내 `account_id`, `kv_namespaces`, `vars` 수정
+2. Google OAuth 설정  
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 설정  
+   - OAuth 리다이렉트 URI에 `https://<your-worker>.workers.dev/auth/callback` 추가
+3. OpenAI API Key를 `OPENAI_API_KEY`로 지정
+4. `npm install` 후 `npm run start`로 로컬 개발 (`wrangler dev`)  
+5. 완성되면 `npm run deploy` (`wrangler publish`)
+
+## 사용 방법
+
+1. 브라우저에서 `https://<your-worker>.workers.dev` 접속
+2. "로그인" 버튼 클릭 시 Google OAuth 화면 이동
+3. 로그인 완료 후 특정 이메일이 아닐 경우 접근 불가 메시지
+4. 성공하면 채팅 화면에서 GPT와 대화 가능
+5. 대화 기록은 Cloudflare KV에 저장되어, 새로고침 후에도 조회 가능
