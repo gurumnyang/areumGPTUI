@@ -1,4 +1,4 @@
-name = "areumgptui"
+name = "areumgpt"
 main = "src/worker.js"
 compatibility_date = "2025-03-16"
 
@@ -6,7 +6,6 @@ compatibility_flags = [
     "nodejs_compat"
 ]
 
-account_id = "ANONYMIZED_ACCOUNT_ID"
 workers_dev = true
 
 [assets]
