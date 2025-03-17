@@ -1,53 +1,50 @@
-// worker.js (기존 코드 + 스트리밍, 추가 API)
-
 import { google } from 'googleapis';
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 
+// 학교 이메일 패턴
 const ALLOWED_EMAIL_REGEX = /^25306\d{2}@areum\.hs\.kr$/;
+// 화이트리스트 이메일(예: 관리자 등) - 추가 사용하려면 활용
 const EMAIL_WHITELIST = [
-    'laminggroub@gmail.com',
-    ''
-]
+  'laminggroub@gmail.com',
+  'haveagooddayhappy@gmail.com'
+];
 
 export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
-      const path = url.pathname;
-      const method = request.method;
+      const { pathname, searchParams } = url;
+      const method = request.method.toUpperCase();
 
       // 정적 파일
-      if (path === '/' || path === '/chat.html') {
+      if (pathname === '/' || pathname === '/chat.html') {
         return env.ASSETS.fetch(request);
       }
 
-      // 인증 등 기존 로직
-      if (path === '/auth') return await this.handleAuth(request, env);
-      if (path === '/auth/callback') return await this.handleAuthCallback(request, env);
-      if (path === '/api/logout') return await this.handleLogout(request, env);
+      // OAuth 인증
+      if (pathname === '/auth') return await this.handleAuth(request, env);
+      if (pathname === '/auth/callback') return await this.handleAuthCallback(request, env);
+      if (pathname === '/api/logout') return await this.handleLogout(request, env);
 
-      // 3) 프로필 조회
-      if (path === '/api/profile' && method === 'GET') {
+      // 프로필 조회
+      if (pathname === '/api/profile' && method === 'GET') {
         return await this.handleProfile(request, env);
       }
 
-      // 5) 새 채팅 생성
-      if (path === '/api/newChat' && method === 'POST') {
+      // 새 채팅 생성
+      if (pathname === '/api/newChat' && method === 'POST') {
         return await this.handleNewChat(request, env);
       }
 
-      // 새 기능: 채팅 기록 조회
-      if (path === '/api/chatHistory' && method === 'GET') {
+      // 채팅 목록 조회
+      if (pathname === '/api/chatHistory' && method === 'GET') {
         return await this.getChatHistory(request, env);
       }
 
-      // 6) 특정 채팅 조작
-      //    GET  /api/chatHistory/:chatId   → 메시지 목록 조회
-      //    DELETE /api/chatHistory/:chatId → 채팅 삭제
-      //    PATCH  /api/chatHistory/:chatId → 채팅 제목 변경
-      if (path.startsWith('/api/chatHistory/')) {
-        const chatId = path.replace('/api/chatHistory/', '');
+      // 특정 채팅 - 조회/삭제/이름변경
+      if (pathname.startsWith('/api/chatHistory/')) {
+        const chatId = pathname.replace('/api/chatHistory/', '');
         if (method === 'GET') {
           return await this.getChatMessages(request, env, chatId);
         } else if (method === 'DELETE') {
@@ -57,20 +54,18 @@ export default {
         }
       }
 
-      // 채팅 스트리밍 요청(POST)
-      if (path === '/api/chatStream' && method === 'POST') {
+      // 사용자 메시지 전송 (스트리밍 준비)
+      if (pathname === '/api/chatStream' && method === 'POST') {
         return await this.handleChatStream(request, env);
       }
 
       // SSE 스트리밍
-      if (path.startsWith('/api/stream/') && method === 'GET') {
-        const chatId = path.replace('/api/stream/', '');
+      if (pathname.startsWith('/api/stream/') && method === 'GET') {
+        const chatId = pathname.replace('/api/stream/', '');
         return await this.handleSSEStream(request, env, chatId);
       }
 
-      // 채팅 API (기존 handleChat) - 필요시 유지
-      // if (path === '/api/chat' && method === 'POST') { ... }
-
+      // 기타: 정적 파일
       return env.ASSETS.fetch(request);
     } catch (err) {
       console.error(err);
@@ -78,21 +73,18 @@ export default {
     }
   },
 
-  // -------------------------
-  // 예시: Google OAuth 관련 (생략 or 기존 로직)
-  // -------------------------
+  // ---------------------------------------------------------------------------
+  // 1. OAuth 처리 (KV에 세션 저장) - 기존 로직과 동일
+  // ---------------------------------------------------------------------------
 
-  // 1. OAuth 시작
   async handleAuth(request, env) {
-    // [개발 모드] Google OAuth를 사용하지 않고 즉시 Mock 로그인 처리
     if (env.ENV === 'dev') {
       return await this.mockLogin(env);
     }
-
-    // [프로덕션 모드] 기존 Google OAuth 플로우
     const url = new URL(request.url);
     const state = uuidv4();
     await env.SESSION_KV.put(`state:${state}`, '1', { expirationTtl: 300 });
+
     const redirectUri = `${url.origin}/auth/callback`;
     const params = new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
@@ -106,29 +98,25 @@ export default {
     return Response.redirect(redirectUrl, 302);
   },
 
-  // 2. OAuth 콜백
   async handleAuthCallback(request, env) {
-    // [개발 모드] Google OAuth 콜백도 무시하고 Mock 로그인
     if (env.ENV === 'dev') {
       return await this.mockLogin(env);
     }
-
-    // [프로덕션 모드] 기존 Google OAuth 콜백 처리
     const url = new URL(request.url);
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
 
     const storedState = await env.SESSION_KV.get(`state:${state}`);
     if (!state || !storedState) {
-      return new Response('올바르지 않은 응답. <a href="/">메뉴로 돌아가기</a>', { status: 400, headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
+      return new Response('Invalid state', { status: 400 });
     }
     await env.SESSION_KV.delete(`state:${state}`);
 
     const redirectUri = `${url.origin}/auth/callback`;
     const oauth2Client = new google.auth.OAuth2(
-        env.GOOGLE_CLIENT_ID,
-        env.GOOGLE_CLIENT_SECRET,
-        redirectUri
+      env.GOOGLE_CLIENT_ID,
+      env.GOOGLE_CLIENT_SECRET,
+      redirectUri
     );
 
     let tokens;
@@ -151,17 +139,19 @@ export default {
       return new Response('Failed to fetch user info', { status: 400 });
     }
 
+    // 이메일 검증
     if (!userInfo || !userInfo.email) {
-      return new Response('이메일 찾지 못함', { status: 400 });
+      return new Response('이메일이 없습니다.', { status: 400 });
     }
     if (!ALLOWED_EMAIL_REGEX.test(userInfo.email)) {
-      return new Response('이용 불가한 이메일입니다. 25306__@areum.hs.kr만 가능합니다.', { status: 403 });
+      return new Response('이용 불가한 이메일입니다 (학교 이메일이 아님)', { status: 403 });
     }
 
+    // 세션 생성
     const sessionId = uuidv4();
     const sessionData = {
       email: userInfo.email,
-      picture: userInfo.picture,
+      picture: userInfo.picture || '',
       accessToken: tokens.access_token,
       expiresAt: Date.now() + (tokens.expires_in * 1000)
     };
@@ -179,32 +169,6 @@ export default {
     });
   },
 
-  // [개발 모드] Mock 로그인 (임의 이메일로 세션 생성)
-  async mockLogin(env) {
-    const sessionId = uuidv4();
-    const email = '2530699@areum.hs.kr'; // 원하는 임의 이메일
-    const sessionData = {
-      email,
-      accessToken: 'mock_access_token',
-      expiresAt: Date.now() + 3600_000, // 1시간 후 만료 (예시)
-    };
-
-    // 세션 저장
-    await env.SESSION_KV.put(`session:${sessionId}`, JSON.stringify(sessionData), {
-      expirationTtl: 3600, // 1시간
-    });
-
-    const cookie = `sessionId=${sessionId}; HttpOnly; Path=/; Secure; SameSite=Lax;`;
-    return new Response('', {
-      status: 302,
-      headers: {
-        'Location': '/chat.html',
-        'Set-Cookie': cookie,
-      },
-    });
-  },
-
-  // 3. 로그아웃
   async handleLogout(request, env) {
     const cookieHeader = request.headers.get('Cookie') || '';
     const sessionId = this.getCookie(cookieHeader, 'sessionId');
@@ -220,56 +184,106 @@ export default {
     });
   },
 
-  // --------------------------
-  // B. 프로필 조회 (GET /api/profile)
-  // --------------------------
+  // 개발 모드: Mock 로그인
+  async mockLogin(env) {
+    const sessionId = uuidv4();
+    const email = '2530699@areum.hs.kr';
+    const sessionData = {
+      email,
+      picture: '',
+      accessToken: 'mock_access_token',
+      expiresAt: Date.now() + 3600_000,
+    };
+    await env.SESSION_KV.put(`session:${sessionId}`, JSON.stringify(sessionData), {
+      expirationTtl: 3600,
+    });
+    const cookie = `sessionId=${sessionId}; HttpOnly; Path=/; Secure; SameSite=Lax;`;
+    return new Response('', {
+      status: 302,
+      headers: { 'Location': '/chat.html', 'Set-Cookie': cookie },
+    });
+  },
+
+  // ---------------------------------------------------------------------------
+  // 2. 프로필 조회 -> 세션은 KV, 프로필은 sessionData
+  // ---------------------------------------------------------------------------
   async handleProfile(request, env) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
-    return new Response(JSON.stringify({ email: sessionData.email, profileImage: sessionData.picture }), {
-      headers: { 'Content-Type': 'application/json' },
+    // sessionData.email, sessionData.picture
+    return new Response(JSON.stringify({
+      email: sessionData.email,
+      profileImage: sessionData.picture
+    }), {
+      headers: { 'Content-Type': 'application/json' }
     });
   },
 
-  // -------------------------
-  // 채팅 기록 목록 조회 (/api/chatHistory)
-  // -------------------------
+  // ---------------------------------------------------------------------------
+  // 3. 채팅 목록 조회 (D1: account_data, chat_history)
+  // ---------------------------------------------------------------------------
   async getChatHistory(request, env) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
     const email = sessionData.email;
-    // KV 키 스캔(간단 예시): chat:history:[email] => JSON [{chatId, title, ...}, ...]
-    const histKey = `chat:history:${email}`;
-    let historyRaw = await env.CHAT_KV.get(histKey);
-    let history = historyRaw ? JSON.parse(historyRaw) : [];
 
-    return new Response(JSON.stringify({ history }), {
+    // account_data에서 사용자의 chat_history_id 가져오기
+    const accRow = await this.getOrCreateAccountData(env, email);
+    const chatIdArr = JSON.parse(accRow.chat_history_id || '[]'); // ["chatId1","chatId2",...]
+
+    const results = [];
+    for (const chatId of chatIdArr) {
+      // chat_history 테이블에서 chat_log 가져옴
+      const row = await env.D1_DB.prepare(
+        `SELECT chat_log FROM chat_history WHERE chat_id = ? LIMIT 1`
+      ).bind(chatId).first();
+      if (!row) continue;
+
+      // chat_log는 JSON 문자열
+      const messages = JSON.parse(row.chat_log || '[]');
+      // "제목"을 구하는 간단 규칙: 첫 번째 user 메시지 or system "title" 
+      const title = this.getChatTitle(messages);
+      results.push({ chatId, title });
+    }
+
+    // 최신 내역이 위에 오도록 하려면 chatIdArr를 최근 것부터 저장하거나, 정렬 로직을 추가
+    return new Response(JSON.stringify({ history: results }), {
       headers: { 'Content-Type': 'application/json' }
     });
   },
 
-  // -------------------------
-  // 특정 채팅 메시지 목록 (/api/chatHistory/:chatId)
-  // -------------------------
+  // ---------------------------------------------------------------------------
+  // 4. 특정 채팅 메시지 목록
+  // ---------------------------------------------------------------------------
   async getChatMessages(request, env, chatId) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
     const email = sessionData.email;
-    const chatKey = `chat:messages:${email}:${chatId}`;
-    let chatRaw = await env.CHAT_KV.get(chatKey);
-    let messages = chatRaw ? JSON.parse(chatRaw) : [];
+
+    // chat_history 검색
+    const row = await env.D1_DB.prepare(
+      `SELECT chat_log FROM chat_history WHERE chat_id = ? AND email = ? LIMIT 1`
+    ).bind(chatId, email).first();
+    if (!row) {
+      return new Response(JSON.stringify({ messages: [] }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const messages = JSON.parse(row.chat_log || '[]');
     return new Response(JSON.stringify({ messages }), {
       headers: { 'Content-Type': 'application/json' }
     });
   },
 
-  // POST /api/newChat : 새 채팅 생성
+  // ---------------------------------------------------------------------------
+  // 5. 새 채팅 생성
+  // ---------------------------------------------------------------------------
   async handleNewChat(request, env) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
@@ -277,21 +291,38 @@ export default {
     }
     const email = sessionData.email;
 
-    const chatId = uuidv4();
-    const defaultTitle = '새 채팅';
-    // 1) 히스토리에 추가
-    await this.addChatHistory(env, email, chatId, defaultTitle);
-    // 2) 메시지 배열은 초기화(빈 목록)
-    const chatKey = `chat:messages:${email}:${chatId}`;
-    await env.CHAT_KV.put(chatKey, JSON.stringify([]));
+    // account_data가 없으면 생성
+    const accData = await this.getOrCreateAccountData(env, email);
 
-    const response = { chatId, title: defaultTitle };
+    // 1) chat_id 생성
+    const chatId = uuidv4();
+    const createdAt = new Date().toISOString();
+
+    // 2) chat_history row 추가 (chat_log는 빈 배열)
+    await env.D1_DB.prepare(`
+      INSERT INTO chat_history (chat_id, email, chat_log, created_at)
+      VALUES (?, ?, ?, ?)
+    `).bind(chatId, email, JSON.stringify([]), createdAt).run();
+
+    // 3) account_data의 chat_history_id에 chatId 추가
+    const chatIdArr = JSON.parse(accData.chat_history_id || '[]');
+    chatIdArr.unshift(chatId); // 맨 앞에 삽입
+    await env.D1_DB.prepare(`
+      UPDATE account_data
+      SET chat_history_id = ?
+      WHERE email = ?
+    `).bind(JSON.stringify(chatIdArr), email).run();
+
+    // 결과 반환
+    const response = { chatId, title: '새 채팅' };
     return new Response(JSON.stringify(response), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' }
     });
   },
 
-  // DELETE /api/chatHistory/:chatId : 채팅 삭제
+  // ---------------------------------------------------------------------------
+  // 6. 채팅 삭제
+  // ---------------------------------------------------------------------------
   async deleteChat(request, env, chatId) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
@@ -299,22 +330,28 @@ export default {
     }
     const email = sessionData.email;
 
-    // 히스토리에서 해당 chatId 제거
-    const histKey = `chat:history:${email}`;
-    const raw = await env.CHAT_KV.get(histKey);
-    let history = raw ? JSON.parse(raw) : [];
+    // chat_history에서 삭제
+    await env.D1_DB.prepare(`
+      DELETE FROM chat_history
+      WHERE chat_id = ? AND email = ?
+    `).bind(chatId, email).run();
 
-    history = history.filter(h => h.chatId !== chatId);
-    await env.CHAT_KV.put(histKey, JSON.stringify(history));
-
-    // 메시지 KV 삭제
-    const chatKey = `chat:messages:${email}:${chatId}`;
-    await env.CHAT_KV.delete(chatKey);
+    // account_data에서 해당 chatId 제거
+    const accData = await this.getOrCreateAccountData(env, email);
+    let chatIdArr = JSON.parse(accData.chat_history_id || '[]');
+    chatIdArr = chatIdArr.filter(id => id !== chatId);
+    await env.D1_DB.prepare(`
+      UPDATE account_data
+      SET chat_history_id = ?
+      WHERE email = ?
+    `).bind(JSON.stringify(chatIdArr), email).run();
 
     return new Response(JSON.stringify({ success: true }), { status: 200 });
   },
 
-  // PATCH /api/chatHistory/:chatId : 채팅 이름 바꾸기
+  // ---------------------------------------------------------------------------
+  // 7. 채팅 이름 바꾸기
+  // ---------------------------------------------------------------------------
   async renameChat(request, env, chatId) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
@@ -327,24 +364,45 @@ export default {
       return new Response(JSON.stringify({ error: 'No title' }), { status: 400 });
     }
 
-    // 히스토리에서 해당 chatId 찾고 제목 변경
-    const histKey = `chat:history:${email}`;
-    const raw = await env.CHAT_KV.get(histKey);
-    let history = raw ? JSON.parse(raw) : [];
-
-    const idx = history.findIndex(h => h.chatId === chatId);
-    if (idx === -1) {
+    // chat_history row 조회
+    const row = await env.D1_DB.prepare(`
+      SELECT chat_log FROM chat_history
+      WHERE chat_id = ? AND email = ?
+      LIMIT 1
+    `).bind(chatId, email).first();
+    if (!row) {
       return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 });
     }
-    history[idx].title = title;
-    await env.CHAT_KV.put(histKey, JSON.stringify(history));
+    let messages = JSON.parse(row.chat_log || '[]');
+
+    // 예시: 첫 번째 system 메시지를 "title: ???" 형태로 저장
+    // 혹은 messages[0]이 user 메시지면 거기에 title로 표현하는 식으로 조정 가능
+    if (messages.length === 0) {
+      // 메시지가 하나도 없다면 system 메시지 생성
+      messages = [{ role: 'system', content: `title: ${title}` }];
+    } else {
+      // system 메시지를 찾거나, 첫 메시지가 system이 아니면 삽입
+      const systemMsg = messages.find(m => m.role === 'system');
+      if (systemMsg) {
+        systemMsg.content = `title: ${title}`;
+      } else {
+        messages.unshift({ role: 'system', content: `title: ${title}` });
+      }
+    }
+
+    // 갱신
+    await env.D1_DB.prepare(`
+      UPDATE chat_history
+      SET chat_log = ?
+      WHERE chat_id = ? AND email = ?
+    `).bind(JSON.stringify(messages), chatId, email).run();
 
     return new Response(JSON.stringify({ success: true }), { status: 200 });
   },
 
-  // -------------------------
-  // 채팅 스트리밍 요청 (/api/chatStream) : POST
-  // -------------------------
+  // ---------------------------------------------------------------------------
+  // 8. 채팅 스트리밍 준비 (user 메시지 등록)
+  // ---------------------------------------------------------------------------
   async handleChatStream(request, env) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
@@ -357,24 +415,37 @@ export default {
       return new Response(JSON.stringify({ error: 'No message' }), { status: 400 });
     }
 
-    // chatId 없으면 새로 생성
-    let newChatId = chatId || uuidv4();
-    // 1) 메시지 목록에 user 메시지 추가
-    await this.pushMessage(env, email, newChatId, { role: 'user', content: message });
+    // 채팅이 없으면 새로 만들기
+    let usedChatId = chatId || uuidv4();
+    const row = await env.D1_DB.prepare(`
+      SELECT chat_log FROM chat_history
+      WHERE chat_id = ? AND email = ?
+      LIMIT 1
+    `).bind(usedChatId, email).first();
 
-    // 2) 채팅 제목이 없으면 history에 추가(처음 생성 시)
-    await this.ensureChatHistory(env, email, newChatId, message);
+    if (!row) {
+      // 채팅이 없으므로 새로 생성
+      const createdAt = new Date().toISOString();
+      await env.D1_DB.prepare(`
+        INSERT INTO chat_history (chat_id, email, chat_log, created_at)
+        VALUES (?, ?, ?, ?)
+      `).bind(usedChatId, email, JSON.stringify([]), createdAt).run();
+      // account_data에도 등록
+      await this.addChatIdToAccount(env, email, usedChatId, true);
+    }
 
-    // (여기선 OpenAI API 호출은 SSE에서 처리: handleSSEStream)
-    // 지금은 단순히 chatId만 반환
-    return new Response(JSON.stringify({ chatId: newChatId, status: 'ok' }), {
+    // user 메시지 push
+    await this.pushMessageD1(env, email, usedChatId, { role: 'user', content: message });
+
+    // chatId 반환
+    return new Response(JSON.stringify({ chatId: usedChatId, status: 'ok' }), {
       headers: { 'Content-Type': 'application/json' }
     });
   },
 
-  // -------------------------
-  // SSE 스트리밍 (/api/stream/:chatId)
-  // -------------------------
+  // ---------------------------------------------------------------------------
+  // 9. SSE 스트리밍 => OpenAI 응답
+  // ---------------------------------------------------------------------------
   async handleSSEStream(request, env, chatId) {
     const sessionData = await this.getSessionData(request, env);
     if (!sessionData) {
@@ -382,90 +453,89 @@ export default {
     }
     const email = sessionData.email;
 
-    // OpenAI 스트리밍 호출
-    // 1) OpenAI 라이브러리 생성
-    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-
-    // 2) 기존 메시지들 불러오기
-    //    (원한다면, system이나 최근 메시지 요약해 컨텍스트로 보낼 수 있음)
-    const messagesKey = `chat:messages:${email}:${chatId}`;
-    let chatRaw = await env.CHAT_KV.get(messagesKey);
-    let allMessages = chatRaw ? JSON.parse(chatRaw) : [];
+    // D1에서 chat_log 가져오기
+    const row = await env.D1_DB.prepare(`
+      SELECT chat_log FROM chat_history
+      WHERE chat_id = ? AND email = ?
+      LIMIT 1
+    `).bind(chatId, email).first();
+    if (!row) {
+      return new Response('Chat not found', { status: 404 });
+    }
+    let allMessages = JSON.parse(row.chat_log || '[]');
 
     // OpenAI 모델에 보낼 messages
-    // user/assistant/system 등을 포함
-    // 여기서는 단순히 user/assistant 메시지를 정렬대로 보냄
+    // (system 역할도 포함 가능)
     const openaiMessages = allMessages.map(m => ({
       role: m.role,
       content: m.content
     }));
 
-    // 3) assistant 응답 스트리밍
-    // SSE를 보내기 위한 ReadableStream 생성
-    const stream = new ReadableStream({
-      start: async(controller) => {
-        try {
-          let fullText = '';
+    // OpenAI 호출
+    const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    let fullText = '';
 
-          const openaiRes = await client.chat.completions.create({
-            model: 'gpt-4o-mini',
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const openaiRes = await openai.chat.completions.create({
+            model: 'gpt-4o-mini', // 필요 시 다른 모델
             messages: openaiMessages,
             stream: true
           });
 
-
-          // openaiRes는 AsyncIterable 형태로 chunk를 가져올 수 있음
+          // SSE chunk 전송
           for await (const part of openaiRes) {
             const content = part.choices?.[0]?.delta?.content;
             if (content) {
               fullText += content;
-              // SSE 포맷으로 write
-              controller.enqueue(encodeSSE(content));
+              controller.enqueue(encodeSSE(content.replace(/\n/g, '\\n')));
             }
           }
 
-          // Worker에서 assistant 메시지 저장
-          await this.pushMessage(env, email, chatId, {
-            role: 'assistant',
-            content: fullText
+          // assistant 메시지 DB에 저장
+          await _this.pushMessageD1(env, email, chatId, {
+            role: 'assistant', content: fullText
           });
+
+          // 사용량(usage_count) 업데이트 (예: gpt-4o-mini +1)
+          await _this.incrementUsageCount(env, email, 'gpt-4o-mini');
 
           // [DONE] 전송
           controller.enqueue(encodeSSE('[DONE]'));
           controller.close();
-
-
-        } catch (error) {
-          console.error('OpenAI SSE error:', error);
-          controller.error(error);
+        } catch (err) {
+          console.error('OpenAI SSE error:', err);
+          controller.error(err);
         }
       }
     });
 
-    // SSE 응답 헤더
+    // SSE 응답
     const headers = {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
+      'Cache-Control': 'no-cache',
       'Connection': 'keep-alive'
     };
+
+    // Trick: "this" binding in async for-await
+    const _this = this;
     return new Response(stream, { headers });
   },
 
-  // -------------------------
-  // 유틸 함수들
-  // -------------------------
+  // ---------------------------------------------------------------------------
+  // 10. 유틸 메서드들
+  // ---------------------------------------------------------------------------
 
-  // 세션 검사
+  // 세션 KV에서 가져오기
   async getSessionData(request, env) {
     const cookieHeader = request.headers.get('Cookie') || '';
     const sessionId = this.getCookie(cookieHeader, 'sessionId');
     if (!sessionId) return null;
-    const sessionDataJson = await env.SESSION_KV.get(`session:${sessionId}`);
-    if (!sessionDataJson) return null;
-    return JSON.parse(sessionDataJson);
+    const sessionData = await env.SESSION_KV.get(`session:${sessionId}`);
+    if (!sessionData) return null;
+    return JSON.parse(sessionData);
   },
-
-  // 쿠키 파싱
   getCookie(cookieHeader, name) {
     const cookies = cookieHeader.split(';').map(c => c.trim());
     for (const c of cookies) {
@@ -475,44 +545,96 @@ export default {
     return null;
   },
 
-  async addChatHistory(env, email, chatId, title) {
-    const histKey = `chat:history:${email}`;
-    const raw = await env.CHAT_KV.get(histKey);
-    let history = raw ? JSON.parse(raw) : [];
-    // 중복 체크
-    const exists = history.find(h => h.chatId === chatId);
-    if (!exists) {
-      history.unshift({ chatId, title });
-      await env.CHAT_KV.put(histKey, JSON.stringify(history));
+  // account_data row 없으면 생성
+  async getOrCreateAccountData(env, email) {
+    // 먼저 SELECT
+    let row = await env.D1_DB.prepare(`
+      SELECT email, usage_count, chat_history_id
+      FROM account_data
+      WHERE email = ?
+      LIMIT 1
+    `).bind(email).first();
+
+    if (!row) {
+      // 없으면 INSERT
+      await env.D1_DB.prepare(`
+        INSERT INTO account_data (email)
+        VALUES (?)
+      `).bind(email).run();
+
+      // 다시 SELECT
+      row = await env.D1_DB.prepare(`
+        SELECT email, usage_count, chat_history_id
+        FROM account_data
+        WHERE email = ?
+        LIMIT 1
+      `).bind(email).first();
     }
+    return row;
   },
 
-  // 메시지 목록에 push
-  async pushMessage(env, email, chatId, { role, content }) {
-    const messagesKey = `chat:messages:${email}:${chatId}`;
-    let chatRaw = await env.CHAT_KV.get(messagesKey);
-    let messages = chatRaw ? JSON.parse(chatRaw) : [];
+  // 사용자의 chat_history_id 배열에 chatId 추가
+  async addChatIdToAccount(env, email, chatId, unshift = false) {
+    const accData = await this.getOrCreateAccountData(env, email);
+    let arr = JSON.parse(accData.chat_history_id || '[]');
+    if (arr.includes(chatId)) return; // 이미 있으면 무시
+    if (unshift) arr.unshift(chatId);
+    else arr.push(chatId);
+    await env.D1_DB.prepare(`
+      UPDATE account_data
+      SET chat_history_id = ?
+      WHERE email = ?
+    `).bind(JSON.stringify(arr), email).run();
+  },
+
+  // DB에서 chat_log 읽고 append
+  async pushMessageD1(env, email, chatId, { role, content }) {
+    const row = await env.D1_DB.prepare(`
+      SELECT chat_log FROM chat_history
+      WHERE chat_id = ? AND email = ?
+      LIMIT 1
+    `).bind(chatId, email).first();
+    if (!row) return; // 없으면 무시 or 에러
+    let messages = JSON.parse(row.chat_log || '[]');
     messages.push({ role, content });
-    await env.CHAT_KV.put(messagesKey, JSON.stringify(messages));
+    await env.D1_DB.prepare(`
+      UPDATE chat_history
+      SET chat_log = ?
+      WHERE chat_id = ? AND email = ?
+    `).bind(JSON.stringify(messages), chatId, email).run();
   },
 
-  // 히스토리 등록(처음 생성 시)
-  async ensureChatHistory(env, email, chatId, firstMessage) {
-    const histKey = `chat:history:${email}`;
-    let histRaw = await env.CHAT_KV.get(histKey);
-    let history = histRaw ? JSON.parse(histRaw) : [];
-    // 이미 존재하는지 확인
-    const exists = history.find(h => h.chatId === chatId);
-    if (!exists) {
-      // 첫 메시리를 간단히 잘라서 title 로
-      const title = firstMessage.slice(0, 20) || 'New Chat';
-      history.unshift({ chatId, title });
-      await env.CHAT_KV.put(histKey, JSON.stringify(history));
+  // 사용량 업데이트 (usage_count: JSON)
+  async incrementUsageCount(env, email, modelKey) {
+    const accData = await this.getOrCreateAccountData(env, email);
+    let usage = JSON.parse(accData.usage_count || '{"gpt-4o":0,"gpt-4o-mini":0}');
+    if (!usage[modelKey]) usage[modelKey] = 0;
+    usage[modelKey]++;
+    await env.D1_DB.prepare(`
+      UPDATE account_data
+      SET usage_count = ?
+      WHERE email = ?
+    `).bind(JSON.stringify(usage), email).run();
+  },
+
+  // 메시지 목록에서 title 추출 (ex: 첫 system 메시지에서 `title: ???` 찾기)
+  getChatTitle(messages) {
+    if (!messages || messages.length === 0) return '새 채팅';
+    // 1) system 메시지에서 title: ... 찾기
+    const sysMsg = messages.find(m => m.role === 'system' && m.content.startsWith('title: '));
+    if (sysMsg) {
+      return sysMsg.content.replace('title: ', '').trim() || '새 채팅';
     }
+    // 2) 없으면, 첫 user 메시지 일부를 썸네일로
+    const userMsg = messages.find(m => m.role === 'user');
+    if (userMsg) {
+      return userMsg.content.slice(0, 20) || '새 채팅';
+    }
+    return '새 채팅';
   }
 };
 
-// SSE 포맷으로 변환
+// SSE 포맷 변환
 function encodeSSE(data) {
   return new TextEncoder().encode(`data: ${data}\n\n`);
 }
