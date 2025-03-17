@@ -4,8 +4,11 @@
   "description": "이 프로젝트는 Cloudflare Workers를 이용하여 다음 기능을 제공합니다:",
   "main": "index.js",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "dev": "wrangler dev ",
+    "deploy": "wrangler deploy",
+    "createMigration": "npx wrangler d1 migrations create areumgptui ''",
+    "applyMigration": "npx wrangler d1 migrations apply D1_DB",
+    "applyLocalMigration": "npx wrangler d1 migrations apply --local D1_DB"
   },
   "repository": {
     "type": "git",
