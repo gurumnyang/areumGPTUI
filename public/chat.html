@@ -2,11 +2,13 @@
 <html lang="ko" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AreumGPT</title>
+  
   <!-- Bootstrap 5 -->
   <link
-          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-          rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
   >
   <!-- Font Awesome for Icons -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
@@ -15,22 +17,32 @@
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.4/dist/jquery.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- 마크다운 파싱 라이브러리 (marked) + XSS 방어 (DOMPurify) -->
+  <!-- marked (마크다운) + DOMPurify (XSS 방지) -->
   <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.1/dist/purify.min.js"></script>
 
-  <!-- highlight.js (Syntax Highlighting) -->
+  <!-- highlight.js (코드 하이라이팅) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"
           integrity="sha512-EBLzUL8XLl+va/zAsmXwS7Z2B1F9HUHkZwyS/VKwh3S7T/U0nF4BaU29EP/ZSf6zgiIxYAnKLu6bJ8dqpmX5uw=="
           crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/javascript.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
-  
-  <!-- highlight.js Dark Theme -->
   <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/atom-one-dark.min.css"
         integrity="sha512-Jk4AqjWsdSzSWCSuQTfYRIF84Rq/eV0G2+tu07byYwHcbTGfdmLrHjUSwvzp5HvbiqK4ibmNwdcG49Y5RGYPTg=="
         crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+  <!-- MathJax (LaTeX 렌더링) v3 -->
+  <!-- 인라인 수식: $...$, 블록 수식: $$...$$ -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$','$$'], ['\\[','\\]']]
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" async id="MathJax-script"></script>
 
   <style>
     /* 전체 레이아웃 */
@@ -44,7 +56,7 @@
     }
     .chat-container {
       display: flex;
-      height: 100vh;
+      height: calc(var(--vh, 1vh) * 100);
       overflow: hidden;
     }
 
@@ -55,6 +67,7 @@
       width: 260px;
       position: relative;
       transition: width 0.3s;
+      overflow-x: clip;
       overflow-y: auto;
     }
     .sidebar.collapsed {
@@ -146,7 +159,7 @@
       position: relative;
     }
     .top-bar-buttons {
-      display: none; /* 사이드바 닫힘 시 표시 */
+      display: none; /* 사이드바 닫혀있을 때 나타날 버튼 */
     }
     .profile-tab {
       cursor: pointer;
@@ -180,7 +193,7 @@
       background-color: #4f4f4f;
     }
 
-    /* --- 메시지 영역 + 입력 --- */
+    /* 메시지 영역 + 입력 */
     .message-container {
       flex: 1;
       overflow-y: auto;
@@ -217,11 +230,11 @@
     }
     .assistant .bubble-content {
       color: #e0e0e0;
+      display:block;
     }
     @keyframes fadeIn {
       to { opacity: 1; }
     }
-
     .bottom-bar {
       padding: 10px 20px;
       border-top: 1px solid #555;
@@ -243,7 +256,7 @@
       box-shadow: none;
     }
 
-    /* --- 스크롤바 커스텀 (선택사항) --- */
+    /* 스크롤바 커스텀 */
     ::-webkit-scrollbar {
       width: 8px;
     }
@@ -254,7 +267,7 @@
       background: #555;
     }
 
-    /* --- 마크다운 스타일 (class="markdown") --- */
+    /* --- 마크다운 스타일 (assistant 메시지용) --- */
     .markdown pre {
       margin-top: 0.5rem;
     }
@@ -344,8 +357,10 @@
   <!-- 사이드바 -->
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header" id="sidebarHeader">
-      <button id="toggleSidebarBtnSide" class="btn btn-sm btn-secondary">&laquo;</button>
-      <button id="newChatBtnSide" class="btn btn-sm btn-primary">새 채팅</button>
+      <button id="toggleSidebarBtnSide" class="btn btn-sm btn-secondary">
+        <i class="fa fa-chevron-left"></i>
+      </button>
+      <button id="newChatBtnSide" class="btn btn-sm btn-outline-secondary"><i class="fa fa-plus"></i></button>
     </div>
     <ul id="historyList" class="chat-history-list"></ul>
   </div>
@@ -354,11 +369,11 @@
   <div class="main-chat">
     <!-- 상단 바 -->
     <div class="top-bar">
-      <h5 class="m-0 fw-bold">GPT-4o-mini</h5>
+      <h5 class="m-0 fw-bold">GPT-4o(실험)</h5>
       <!-- 사이드바가 닫혀있을 때 나타날 버튼 세트 -->
       <div class="top-bar-buttons" id="topBarButtons">
-        <button id="toggleSidebarBtnTop" class="btn btn-sm btn-secondary">&raquo;</button>
-        <button id="newChatBtnTop" class="btn btn-sm btn-primary">새 채팅</button>
+        <button id="toggleSidebarBtnTop" class="btn btn-sm btn-secondary"><i class="fa fa-chevron-right"></i></button>
+        <button id="newChatBtnTop" class="btn btn-sm btn-outline-secondary"><i class="fa fa-plus"></i></button>
       </div>
       <!-- 프로필 -->
       <div class="profile-tab" id="profileTab">
@@ -400,7 +415,7 @@
    *****************************************/
   // marked 옵션
   marked.setOptions({
-    breaks: true,
+    breaks: true, // 줄바꿈
     gfm: true
   });
 
@@ -687,12 +702,21 @@
         scrollToBottom();
         return;
       }
+      // SSE chunk를 누적
       streamBuffer += e.data.replace(/\\n/g, '\n');
-
-      const $msgBubble = $('#' + assistantMsgId).find('.bubble-content');
+      
+      // sanitize
       const rawHtml = marked.parse(streamBuffer);
       const safeHtml = DOMPurify.sanitize(rawHtml);
+
+      // chat bubble 갱신
+      const $msgBubble = $('#' + assistantMsgId).find('.bubble-content');
       $msgBubble.html(safeHtml);
+
+      // MathJax 렌더링(LaTeX 수식)
+      if (window.MathJax) {
+        MathJax.typesetPromise([$msgBubble[0]]).catch(err => console.error(err));
+      }
     });
 
     sseSource.onerror = function(err) {
@@ -711,16 +735,23 @@
       .attr('id', messageId)
       .addClass(role);
 
+    // 마크다운 -> HTML
     const rawHtml = marked.parse(content || '');
     const safeHtml = DOMPurify.sanitize(rawHtml);
 
+    // 삽입
     const $bubbleContent = $('<div class="bubble-content">').html(safeHtml);
     if (role === 'assistant') {
-      $bubbleContent.addClass('markdown prose');
+      $bubbleContent.addClass('markdown');
     }
-
     $msgBubble.append($bubbleContent);
     $('#messagesArea').append($msgBubble);
+
+    // 수식(LaTeX) 렌더링
+    if (window.MathJax) {
+      MathJax.typesetPromise([$bubbleContent[0]]).catch(err => console.error(err));
+    }
+
     scrollToBottom();
     return messageId;
   }
@@ -729,6 +760,33 @@
     const messagesArea = document.getElementById('messagesArea');
     messagesArea.scrollTop = messagesArea.scrollHeight;
   }
+</script>
+
+<!-- 반응형 사이드바 -->
+<script>
+  function updateSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const breakpoint = 768;
+    if(window.innerWidth < breakpoint) {
+      sidebar.classList.add('collapsed');
+      toggleSidebar(false);
+    } else {
+      sidebar.classList.remove('collapsed');
+    }
+  }
+  window.addEventListener('load', updateSidebar);
+  window.addEventListener('resize', updateSidebar);
+</script>
+
+<!-- 모바일 전체 화면 높이 -->
+<script>
+  function setMobileHeight() {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+  }
+  window.addEventListener('load', setMobileHeight);
+  window.addEventListener('resize', setMobileHeight);
+  window.addEventListener('orientationchange', setMobileHeight);
 </script>
 
 </body>
