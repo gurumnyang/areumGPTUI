@@ -7,7 +7,9 @@ const ALLOWED_EMAIL_REGEX = /^25306\d{2}@areum\.hs\.kr$/;
 // 화이트리스트 이메일(예: 관리자 등) - 추가 사용하려면 활용
 const EMAIL_WHITELIST = [
   'laminggroub@gmail.com',
-  'haveagooddayhappy@gmail.com'
+  'haveagooddayhappy@gmail.com',
+  'overjjang99@gmail.com',
+  '2530720@areum.hs.kr'
 ];
 
 export default {
@@ -108,7 +110,7 @@ export default {
 
     const storedState = await env.SESSION_KV.get(`state:${state}`);
     if (!state || !storedState) {
-      return new Response('Invalid state', { status: 400 });
+      return new Response('잘못된 응답입니다. (처음부터 다시 로그인)', { status: 400 });
     }
     await env.SESSION_KV.delete(`state:${state}`);
 
@@ -144,7 +146,9 @@ export default {
       return new Response('이메일이 없습니다.', { status: 400 });
     }
     if (!ALLOWED_EMAIL_REGEX.test(userInfo.email)) {
-      return new Response('이용 불가한 이메일입니다 (학교 이메일이 아님)', { status: 403 });
+      if (!EMAIL_WHITELIST.includes(userInfo.email)) {
+        return new Response('이용 불가한 이메일입니다 (3-6 학교 이메일이 아님)', { status: 403 });
+      }
     }
 
     // 세션 생성
@@ -479,7 +483,7 @@ export default {
       async start(controller) {
         try {
           const openaiRes = await openai.chat.completions.create({
-            model: 'gpt-4o-mini', // 필요 시 다른 모델
+            model: 'gpt-4o', // 필요 시 다른 모델
             messages: openaiMessages,
             stream: true
           });
